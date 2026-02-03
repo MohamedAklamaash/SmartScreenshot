@@ -75,10 +75,11 @@ class ScreenshotApp(Gtk.Window):
         self.scripts_conf = load_scripts_config(self.config)
 
         display = Gdk.Display.get_default()
-        monitor = display.get_primary_monitor()
-        geometry = monitor.get_geometry()
-        system_width = geometry.width
-        system_height = geometry.height
+        object_methods = [method_name for method_name in dir(display)
+                  if callable(getattr(display, method_name))]
+        screen = display.get_default_screen()
+        system_width = screen.get_width()
+        system_height = screen.get_height()
 
         try:
             override_width = int(self.config["General"].get("override_width", ""))
