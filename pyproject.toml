@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smartscreenshot"
+version = "0.1.0"
+description = "A GTK-based screenshot tool with OCR-based blurring and script support."
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Mohamed Aklamaash", email = "aklamaash78@gmail.com"}
+]
+dependencies = [
+    "PyGObject",
+    "opencv-python",
+    "pytesseract",
+    "numpy",
+    "Pillow",
+    "PyYAML"
+]
+
+[project.optional-dependencies]
+ai = [
+    "torch",
+    "transformers"
+]
+
+[project.scripts]
+smartscreenshot = "smartscreenshot:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"smartscreenshot.scripts" = ["*/*"]

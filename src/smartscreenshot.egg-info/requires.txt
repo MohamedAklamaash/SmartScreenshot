@@ -1,0 +1,10 @@
+PyGObject
+opencv-python
+pytesseract
+numpy
+Pillow
+PyYAML
+
+[ai]
+torch
+transformers

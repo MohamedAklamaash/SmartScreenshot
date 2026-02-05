@@ -1,3 +1,21 @@
+Metadata-Version: 2.4
+Name: smartscreenshot
+Version: 0.1.0
+Summary: A GTK-based screenshot tool with OCR-based blurring and script support.
+Author-email: Mohamed Aklamaash <aklamaash78@gmail.com>
+License: MIT
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: PyGObject
+Requires-Dist: opencv-python
+Requires-Dist: pytesseract
+Requires-Dist: numpy
+Requires-Dist: Pillow
+Requires-Dist: PyYAML
+Provides-Extra: ai
+Requires-Dist: torch; extra == "ai"
+Requires-Dist: transformers; extra == "ai"
+
 # SmartScreenshot
 
 SmartScreenshot is a GTK-based application for capturing screenshots (full-screen and window capture), processing them (e.g., blurring sensitive text using OCR), and running user-configurable scripts on the captured images. It supports both X11 and Wayland (for full-screen capture) using external tools.

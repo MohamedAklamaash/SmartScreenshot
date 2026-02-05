@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-import gi, subprocess, time, sys, os, configparser, json
+import gi, subprocess, time, sys, os, configparser, json, tempfile
 gi.require_version("Gtk", "3.0")
 gi.require_version("Wnck", "3.0")
 gi.require_version("GdkX11", "3.0")
 from gi.repository import Gtk, GdkPixbuf, Gdk, Wnck, GdkX11
+
+def get_resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(__file__)
+    return os.path.join(base_path, relative_path)
 
 def load_config():
     config = configparser.ConfigParser()
@@ -45,10 +53,20 @@ def load_scripts_config(config):
         default_scripts = {
             "scripts": [
                 {
-                    "name": "Generic Script",
-                    "path": "process_image.py",
+                    "name": "Secrets Handling",
+                    "path": get_resource_path("scripts/secrets-handling/main.py"),
                     "parameters": [
-                        {"label": "Custom Parameter", "default": "1.0"}
+                        {"label": "Kernel Size", "default": "99"},
+                        {"label": "Sigma", "default": "30"}
+                    ]
+                },
+                {
+                    "name": "Custom Keyword Blur",
+                    "path": get_resource_path("scripts/secrets-handling-custom-keywords/main.py"),
+                    "parameters": [
+                        {"label": "Kernel Size", "default": "99"},
+                        {"label": "Sigma", "default": "30"},
+                        {"label": "Keywords (comma-separated)", "default": "password,name"}
                     ]
                 }
             ]
@@ -125,11 +143,16 @@ class ScreenshotApp(Gtk.Window):
 
         self.last_pixbuf = None
         self.last_capture_name = "None"
+        
+        self.temp_dir = tempfile.gettempdir()
+        self.screenshot_path = os.path.join(self.temp_dir, "smartscreenshot_capture.png")
+        self.processed_path = os.path.join(self.temp_dir, "smartscreenshot_processed.png")
+        self.preview_path = os.path.join(self.temp_dir, "smartscreenshot_preview.png")
+        self.last_capture_path = os.path.join(self.temp_dir, "smartscreenshot_last_capture.png")
 
         notebook = Gtk.Notebook()
         self.add(notebook)
 
-        # --- Tab: Window Capture ---
         window_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         window_box.set_border_width(self.main_border_width)
         window_frame = Gtk.Frame()
@@ -148,10 +171,13 @@ class ScreenshotApp(Gtk.Window):
         refresh_btn.connect("clicked", lambda b: self.populate_window_list())
         button_box.pack_start(refresh_btn, False, False, 0)
 
-        # New: Upload Image button.
         upload_btn = Gtk.Button(label="Upload Image")
         upload_btn.connect("clicked", self.on_upload_image)
         button_box.pack_start(upload_btn, False, False, 0)
+        
+        self.capture_area_btn = Gtk.Button(label="Capture Selected Area")
+        self.capture_area_btn.connect("clicked", self.on_capture_area_clicked)
+        button_box.pack_start(self.capture_area_btn, False, False, 0)
 
         scrolled_list = Gtk.ScrolledWindow()
         scrolled_list.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -169,7 +195,6 @@ class ScreenshotApp(Gtk.Window):
 
         notebook.append_page(window_frame, Gtk.Label(label="Window Capture"))
 
-        # --- Tab: Scripts ---
         script_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         script_paned.connect("size-allocate", self.on_script_paned_allocate)
 
@@ -190,7 +215,6 @@ class ScreenshotApp(Gtk.Window):
         script_top_box.pack_start(preview_proc_btn, False, False, 0)
         script_paned.pack1(script_top_box, True, False)
 
-        # Load script sections from the external JSON config.
         scripts = self.scripts_conf.get("scripts", [])
         if not scripts:
             scripts = [{
@@ -274,12 +298,10 @@ class ScreenshotApp(Gtk.Window):
             self.global_preview.set_from_pixbuf(scaled)
 
     def show_preview_dialog(self, pixbuf, title="Preview"):
-        # Instead of an internal preview dialog, we open with the system's default image viewer.
-        temp_path = "temp_preview.png"
-        pixbuf.savev(temp_path, "png", [], [])
+        pixbuf.savev(self.preview_path, "png", [], [])
         try:
             image_viewer = self.config["General"].get("image_viewer", "xdg-open")
-            subprocess.run([image_viewer, temp_path])
+            subprocess.run([image_viewer, self.preview_path])
         except Exception as e:
             print("Error opening external viewer:", e)
         return None
@@ -293,18 +315,69 @@ class ScreenshotApp(Gtk.Window):
         width = root_window.get_width()
         height = root_window.get_height()
         pb = Gdk.pixbuf_get_from_window(root_window, 0, 0, width, height)
+        
+        if not pb:
+            print("GDK capture failed. Trying 'gnome-screenshot' for Wayland...")
+            try:
+                subprocess.run(["gnome-screenshot", "-f", self.screenshot_path], check=True)
+                pb = GdkPixbuf.Pixbuf.new_from_file(self.screenshot_path)
+            except Exception as e:
+                print("gnome-screenshot failed, trying 'grim'...", e)
+                try:
+                    subprocess.run(["grim", self.screenshot_path], check=True)
+                    pb = GdkPixbuf.Pixbuf.new_from_file(self.screenshot_path)
+                except Exception as e2:
+                    print("Grim capture failed or not installed:", e2)
+        
         self.show()
         if not pb:
-            print("Screenshot failed (pb is None). Are you on X11?")
+            print("Screenshot failed. If you are on Wayland, ensure 'grim' is installed.")
             return
-        pb.savev("screenshot.png", "png", [], [])
+        
+        if not os.path.exists(self.screenshot_path):
+             pb.savev(self.screenshot_path, "png", [], [])
         self.update_global_preview(pb, "Full Screen")
         self.show_preview_dialog(pb, title="Full Screen Preview")
+
+    def on_capture_area_clicked(self, button):
+        self.hide()
+        while Gtk.events_pending():
+            Gtk.main_iteration_do(False)
+        time.sleep(self.capture_delay)
+        
+        success = False
+        try:
+            subprocess.run(["gnome-screenshot", "-a", "-f", self.screenshot_path], check=True)
+            success = True
+        except Exception:
+            try:
+                subprocess.run(["grim", "-g", "$(slurp)", self.screenshot_path], check=True, shell=True)
+                success = True
+            except Exception:
+                print("Capture area failed. Ensure gnome-screenshot or grim+slurp is installed.")
+        
+        self.show()
+        if success and os.path.exists(self.screenshot_path):
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file(self.screenshot_path)
+                self.update_global_preview(pb, "Selected Area")
+                self.show_preview_dialog(pb, title="Area Capture Preview")
+            except Exception as e:
+                print("Error loading captured area image:", e)
 
     def populate_window_list(self):
         for child in self.flowbox.get_children():
             self.flowbox.remove(child)
+        
         screen = Wnck.Screen.get_default()
+        if screen is None:
+            label = Gtk.Label(label="Window listing is only available on X11 due to Wayland security restrictions.\n\n"
+                                    "Please use the 'Capture Selected Area' button above\n"
+                                    "to capture specific windows or regions.")
+            self.flowbox.add(label)
+            self.flowbox.show_all()
+            return
+
         screen.force_update()
         windows = screen.get_windows()
         for win in windows:
@@ -364,7 +437,7 @@ class ScreenshotApp(Gtk.Window):
         if not pb:
             print("Failed to capture window with XID", xid)
             return
-        pb.savev("window_screenshot.png", "png", [], [])
+        pb.savev(self.screenshot_path, "png", [], [])
         self.update_global_preview(pb, button.get_label())
         self.show_preview_dialog(pb, title="Window Capture Preview")
 
@@ -372,14 +445,20 @@ class ScreenshotApp(Gtk.Window):
         if self.last_pixbuf is None:
             print("No capture available!")
             return
-        temp_input = "last_capture.png"
-        self.last_pixbuf.savev(temp_input, "png", [], [])
+        self.last_pixbuf.savev(self.last_capture_path, "png", [], [])
         params = []
         if container is not None and hasattr(container, "param_entries"):
             params = [entry.get_text() for entry in container.param_entries]
-        subprocess.run(["python3", script_name, temp_input, "processed.png"] + params)
+        
+        full_script_path = script_name
+        if not os.path.isabs(script_name):
+            pkg_script = get_resource_path(os.path.join("scripts", script_name))
+            if os.path.exists(pkg_script):
+                full_script_path = pkg_script
+        
+        subprocess.run(["python3", full_script_path, self.last_capture_path, self.processed_path] + params)
         try:
-            pb_processed = GdkPixbuf.Pixbuf.new_from_file("processed.png")
+            pb_processed = GdkPixbuf.Pixbuf.new_from_file(self.processed_path)
             self.show_preview_dialog(pb_processed, title=f"{script_name} Preview")
             clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
             clipboard.set_image(pb_processed)
@@ -388,9 +467,9 @@ class ScreenshotApp(Gtk.Window):
             print("Error loading processed image:", e)
         
     def on_preview_processed(self, button):
-        if os.path.exists("processed.png"):
+        if os.path.exists(self.processed_path):
             try:
-                pb = GdkPixbuf.Pixbuf.new_from_file("processed.png")
+                pb = GdkPixbuf.Pixbuf.new_from_file(self.processed_path)
                 self.show_preview_dialog(pb, title="Processed Image Preview")
                 clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
                 clipboard.set_image(pb)
@@ -423,7 +502,6 @@ class ScreenshotApp(Gtk.Window):
         if response == Gtk.ResponseType.OK:
             selected_file = dialog.get_filename()
             print("Selected file:", selected_file)
-            # Load the selected image.
             pb = GdkPixbuf.Pixbuf.new_from_file(selected_file)
             if pb:
                 self.last_pixbuf = pb

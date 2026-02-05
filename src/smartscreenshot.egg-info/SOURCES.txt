@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+src/smartscreenshot/__init__.py
+src/smartscreenshot/app.py
+src/smartscreenshot.egg-info/PKG-INFO
+src/smartscreenshot.egg-info/SOURCES.txt
+src/smartscreenshot.egg-info/dependency_links.txt
+src/smartscreenshot.egg-info/entry_points.txt
+src/smartscreenshot.egg-info/requires.txt
+src/smartscreenshot.egg-info/top_level.txt
+src/smartscreenshot/scripts/ai-script/main.py
+src/smartscreenshot/scripts/keyboard-shortcut/main.py
+src/smartscreenshot/scripts/secrets-handling/main.py
+src/smartscreenshot/scripts/secrets-handling-custom-keywords/main.py
